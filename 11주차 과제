@@ -1,0 +1,54 @@
+문제 1: 다음 C 언어 코드 선언에 대한 설명으로 옳지 않은 것은?
+char *string = "Hello";
+char array[] = "Array";
+1 string이 가리키는 문자열 리터럴은 읽기 전용 메모리 영역에 저장된다.
+2 array는 스택에 할당되며 배열 요소의 문자를 다른 문자로 변경할 수 있다.
+3 string에 다른 문자열 리터럴의 주소를 대입하여 가리키는 대상을 바꿀 수 있다.
+4 array는 배열명이므로 포인터처럼 다른 메모리 주소를 가리키도록 변경할 수 있다.
+답: 4
+
+문제 2: getchar() 함수의 반환 자료형이 char가 아닌 int형으로 정의된 주된 이유는?
+1 다중 바이트 문자열을 한 번에 입력받기 위해서
+2 파일의 끝(EOF, -1)과 정상 문자(unsigned char 범위)를 안전하게 구별하기 위해서
+3 입력 버퍼를 거치지 않고 콘솔에 즉시 출력하기 위해서
+4 아스키코드 대신 유니코드 값을 기본으로 반환하기 위해서
+답: 2
+
+문제 3: 다음 코드의 실행 결과로 옳은 것은?
+char str1[20] = "Back", str2[20] = "Space", str3[20];
+strncpy(str3, str2, 3);
+str3[3] = '\0';
+strcat(str1, str2);
+strncat(str3, str1, 3);
+printf("%s / %s\n", str1, str3);
+1 BackSpace / SpaBac
+2 BackSpace / BacSpa
+3 SpaceBack / SpaBac
+4 BackSpa / BackSpa
+답: 1
+
+문제 4: 다음 구조체 코드의 실행 결과로 옳은 것은?
+struct Person { char name[50]; int age; };
+void update1(struct Person p) { strcpy(p.name, "Yun"); p.age = 22; }
+void update2(struct Person *p) { strcpy(p->name, "Kim"); p->age = 30; }
+
+int main() {
+    struct Person p1 = { "Moon", 25 };
+    update1(p1);
+    printf("%s %d / ", p1.name, p1.age);
+    update2(&p1);
+    printf("%s %d\n", p1.name, p1.age);
+    return 0;
+}
+1 Yun 22 / Kim 30
+2 Moon 25 / Moon 25
+3 Moon 25 / Kim 30
+4 Yun 22 / Moon 25
+답: 3
+
+문제 5: 공용체(union)와 열거형(enum)에 대한 설명으로 옳지 않은 것은?
+1 공용체는 모든 멤버가 동일한 메모리 시작 주소를 공유한다.
+2 공용체는 한 번에 하나의 멤버만 유효하게 사용할 수 있으며, 새 값을 저장하면 기존 값을 덮어쓴다.
+3 열거형은 enum 키워드를 사용하여 관련된 상수들의 집합을 정의할 때 사용한다.
+4 열거형 멤버는 별도의 값을 지정하지 않으면 첫 번째 멤버부터 1부터 1씩 증가하는 값을 가진다.
+답: 4
