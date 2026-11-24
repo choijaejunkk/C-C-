@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPS 경로 시각화 뷰어</title>
+
+  <!-- Leaflet CSS (API 키 불필요) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+    header {
+      padding: 12px 20px;
+      background: #0f172a;
+      color: #fff;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+    }
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .status {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    button, .file-label {
+      padding: 7px 13px;
+      font-size: 13px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #3b82f6;
+      color: #fff;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    button:hover, .file-label:hover {
+      background: #2563eb;
+    }
+    .file-label {
+      background: #475569;
+    }
+    .file-label:hover {
+      background: #334155;
+    }
+    #fileInput {
+      display: none;
+    }
+    #map {
+      flex: 1;
+      width: 100%;
+    }
+    .error-banner {
+      display: none;
+      padding: 10px 20px;
+      background: #fee2e2;
+      color: #991b1b;
+      font-size: 13px;
+      border-bottom: 1px solid #fecaca;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>GPS 위치 및 이동 경로 뷰어</h1>
+      <div id="status" class="status">output.json 불러오는 중...</div>
+    </div>
+    <div class="controls">
+      <label for="fileInput" class="file-label">파일 직접 열기</label>
+      <input type="file" id="fileInput" accept=".json,.txt,.csv" />
+      <button id="fitBtn" type="button">전체 경로 보기</button>
+      <button id="reloadBtn" type="button">새로고침</button>
+    </div>
+  </header>
+
+  <div id="errorBanner" class="error-banner"></div>
+  <div id="map"></div>
+
+  <!-- Leaflet JS (API 키 불필요) -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script>
+    const JSON_URL = "./output.json";
+
+    const map = L.map("map").setView([42.3634, -71.098465], 16);
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors © CARTO'
+    }).addTo(map);
+
+    const layerGroup = L.layerGroup().addTo(map);
+    let currentBounds = null;
+
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("errorBanner");
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = "block";
+      statusEl.textContent = "오류 발생";
+    }
+
+    function clearError() {
+      errorEl.textContent = "";
+      errorEl.style.display = "none";
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&")
+        .replaceAll("<", "<")
+        .replaceAll(">", ">")
+        .replaceAll('"', """)
+        .replaceAll("'", "'");
+    }
+
+    /**
+     * 표준 JSON, 비표준 JSON, CSV/텍스트 줄 단위 데이터 모두 안전하게 파싱
+     */
+    function parseGpsContent(rawText) {
+      const trimmed = rawText.trim();
+      if (!trimmed) {
+        throw new Error("파일 내용이 비어 있습니다.");
+      }
+
+      const points = [];
+
+      // 1단계: 정상적인 JSON 파싱 시도
+      try {
+        const parsed = JSON.parse(trimmed);
+        const list = Array.isArray(parsed)
+          ? parsed
+          : (parsed.data || parsed.points || parsed.coordinates || [parsed]);
+
+        list.forEach((item, idx) => {
+          if (typeof item === "string") {
+            const m = item.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)(?:\s*,\s*(.*))?/);
+            if (m) {
+              points.push({
+                lat: Number(m[1]),
+                lng: Number(m[2]),
+                info: (m[3] || `지점 #${idx + 1}`).trim()
+              });
+            }
+          } else if (item && typeof item === "object") {
+            const lat = Number(item.latitude ?? item.lat ?? item[0]);
+            const lng = Number(item.longitude ?? item.lng ?? item.lon ?? item[1]);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              const info = item.info ?? (item.speed !== undefined ? `Speed = ${item.speed}` : (item[2] ?? `지점 #${idx + 1}`));
+              points.push({ lat, lng, info: String(info) });
+            }
+          }
+        });
+      } catch (e) {
+        // 2단계: JSON 문법 오류가 있거나 일반 텍스트 형식인 경우 줄 단위로 좌표 추출
+        const lines = trimmed.split(/\r?\n/);
+        lines.forEach((line, idx) => {
+          // 한 줄에서 "위도, 경도" 패턴과 그 뒤의 부가 텍스트 추출
+          const match = line.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)(?:\s*,\s*([^"\]\}]+))?/);
+          if (match) {
+            const lat = Number(match[1]);
+            const lng = Number(match[2]);
+            const info = (match[3] || `지점 #${idx + 1}`).trim();
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              points.push({ lat, lng, info });
+            }
+          }
+        });
+      }
+
+      if (points.length === 0) {
+        throw new Error("좌표(위도, 경도) 데이터를 찾을 수 없습니다. output.json 내용을 확인해 주세요.");
+      }
+
+      return points;
+    }
+
+    function renderPoints(points) {
+      clearError();
+      layerGroup.clearLayers();
+      currentBounds = null;
+
+      const latLngs = points.map((p) => [p.lat, p.lng]);
+
+      const polyline = L.polyline(latLngs, {
+        color: "#2563eb",
+        weight: 4,
+        opacity: 0.85
+      }).addTo(layerGroup);
+
+      points.forEach((p, idx) => {
+        const isStart = idx === 0;
+        const isEnd = idx === points.length - 1;
+        const title = isStart ? "출발지" : isEnd ? "도착지" : `지점 #${idx + 1}`;
+
+        const popupHtml = `
+          <div style="min-width: 160px; line-height: 1.6; font-size: 13px;">
+            <strong style="color: #1e3a8a;">${title}</strong><br/>
+            <strong>정보:</strong> ${escapeHtml(p.info)}<br/>
+            <strong>위도:</strong> ${p.lat.toFixed(6)}<br/>
+            <strong>경도:</strong> ${p.lng.toFixed(6)}
+          </div>
+        `;
+
+        if (isStart || isEnd) {
+          const marker = L.marker([p.lat, p.lng]).addTo(layerGroup);
+          marker.bindPopup(popupHtml);
+          marker.bindTooltip(isStart ? "출발" : "도착", { permanent: false });
+        } else {
+          const circle = L.circleMarker([p.lat, p.lng], {
+            radius: 6,
+            fillColor: "#f59e0b",
+            color: "#92400e",
+            weight: 1.5,
+            opacity: 1,
+            fillOpacity: 0.9
+          }).addTo(layerGroup);
+          circle.bindPopup(popupHtml);
+        }
+      });
+
+      currentBounds = polyline.getBounds();
+      map.fitBounds(currentBounds, { padding: [40, 40] });
+
+      const first = points[0];
+      const last = points[points.length - 1];
+      statusEl.textContent = `총 ${points.length}개 지점 표시 중 (${first.lat.toFixed(5)}, ${first.lng.toFixed(5)} → ${last.lat.toFixed(5)}, ${last.lng.toFixed(5)})`;
+    }
+
+    async function loadFromServer() {
+      clearError();
+      statusEl.textContent = "output.json 불러오는 중...";
+
+      try {
+        const res = await fetch(`${JSON_URL}?t=${Date.now()}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} - output.json 파일을 찾을 수 없습니다.`);
+        }
+        const text = await res.text();
+        const points = parseGpsContent(text);
+        renderPoints(points);
+      } catch (err) {
+        console.error(err);
+        showError(`데이터 로드 실패: ${err.message}`);
+      }
+    }
+
+    document.getElementById("fileInput").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const points = parseGpsContent(event.target.result);
+          renderPoints(points);
+        } catch (err) {
+          showError(`파일 파싱 오류: ${err.message}`);
+        }
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+
+    document.getElementById("fitBtn").addEventListener("click", () => {
+      if (currentBounds) {
+        map.fitBounds(currentBounds, { padding: [40, 40] });
+      }
+    });
+
+    document.getElementById("reloadBtn").addEventListener("click", loadFromServer);
+
+    loadFromServer();
+  </script>
+</body>
+</html>
